@@ -26,12 +26,7 @@ struct Chain {
 
 std::vector<Chain> turnstile_chains;
 
-Mutex::Mutex() {
-    locked = false;
-    first = true;
-    waits = 0;
-    std::call_once(init, [](){ turnstile_chains = std::vector<Chain>(TC_TABLESIZE); });
-}
+Mutex::Mutex() : locked(), first(true), waits(0) { }
 
 bool Mutex::try_lock() {
     bool expected = false;
@@ -48,10 +43,11 @@ bool Mutex::has_waits() {
 }
 
 void Mutex::lock() {
-    auto tc = TC_LOOKUP(this);
-
+    std::call_once(init, [](){ turnstile_chains = std::vector<Chain>(TC_TABLESIZE); });
     /* For each thread a turnstile is allocated one time and attached to them */
     thread_local static auto *turnstile = new Turnstile();
+
+    auto tc = TC_LOOKUP(this);
 
     tc->guard.lock();
 

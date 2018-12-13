@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <atomic>
 #include <queue>
+#include <vector>
 
 class Mutex {
 private:
