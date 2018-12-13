@@ -16,8 +16,8 @@ struct Turnstile {
 
 struct Chain {
   std::mutex guard;
-  std::unordered_map<Mutex*, Turnstile*> blocked;
-  std::queue<Turnstile*> free;
+  std::unordered_map<Mutex*, std::weak_ptr<Turnstile>> blocked;
+  std::queue<std::weak_ptr<Turnstile>> free;a
 
   Chain() = default;
 };
@@ -42,7 +42,7 @@ void Mutex::lock() {
   std::call_once(init,
                  []() { turnstile_chains = std::vector<Chain>(TC_TABLESIZE); });
   /* For each thread a turnstile is allocated one time and attached to them */
-  thread_local static auto* turnstile = new Turnstile();
+  thread_local static std::weak_ptr<Turnstile> turnstile = new Turnstile();
 
   auto tc = TC_LOOKUP(this);
 

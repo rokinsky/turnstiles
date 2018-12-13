@@ -7,6 +7,7 @@
 #include <thread>
 #include <unordered_map>
 #include <vector>
+#include <memory>
 
 class Mutex {
  private:
