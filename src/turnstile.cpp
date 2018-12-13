@@ -49,7 +49,7 @@ void Mutex::lock() {
   tc->guard.lock();
 
   if (!try_lock()) {
-      std::shared_ptr<Turnstile> t;
+    std::shared_ptr<Turnstile> t;
     if (try_first()) { /* if it is the first thread to block, */
       /* it lends its turnstile to the lock. */
       tc->blocked[this] = t = turnstile;
