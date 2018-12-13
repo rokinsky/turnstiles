@@ -1,5 +1,4 @@
 #include "turnstile.h"
-#include "log.h"
 
 #include <iostream>
 #include <map>
@@ -78,12 +77,10 @@ void f(const std::string& name, int loop_rep) {
         mut39.lock();
         mut40.lock();*/
 
-        log(i, "f ", name, " critical section start");
         int local = shared;
         local += 1;
         //std::this_thread::sleep_for(std::chrono::milliseconds(10));
         shared = local;
-        log(i, "f ", name, " critical section finish");
 /*        mut40.unlock();
         mut39.unlock();
         mut38.unlock();
@@ -173,12 +170,10 @@ void z(const std::string& name, int loop_rep) {
         mut39.lock();
         mut40.lock();
 
-        log(i, "f ", name, " critical section start");
         int local = shared3;
         local += 1;
         //std::this_thread::sleep_for(std::chrono::milliseconds(10));
         shared3 = local;
-        log(i, "f ", name, " critical section finish");
         mut40.unlock();
         mut39.unlock();
         mut38.unlock();
@@ -258,12 +253,10 @@ void x(const std::string& name, int loop_rep) {
         mut69.lock();
         mut70.lock();
 
-        log(i, "f ", name, " critical section start");
         int local = shared2;
         local += 1;
         //std::this_thread::sleep_for(std::chrono::milliseconds(10));
         shared2 = local;
-        log(i, "f ", name, " critical section finish");
         mut70.unlock();
         mut69.unlock();
         mut68.unlock();
@@ -304,7 +297,7 @@ int main() {
     int loops = 0;
 
     std::vector<std::thread> threads;
-    log("size: ", sizeof(Mutex));
+    std::cout << "size: " << sizeof(Mutex) << std::endl;
 
     for (int i = 0; i < N; i++) {
         threads.emplace_back( std::thread{[i, loop_rep]{ f("t" + std::to_string(i), loop_rep); }});
@@ -325,5 +318,5 @@ int main() {
         t.join();
     }
 
-    log("result is correct? ", (loop_rep * N * loops == shared + shared2 + shared3), "");
+    std::cout << "result is correct? " << (loop_rep * N * loops == shared + shared2 + shared3) << std::endl;
 }
