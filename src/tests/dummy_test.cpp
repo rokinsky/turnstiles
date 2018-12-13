@@ -23,6 +23,7 @@ static_assert(
         "Mutex should have a \"void unlock()\" member function.");
 static_assert(sizeof(Mutex) <= 8, "Mutex is too large");
 
+thread_local std::string t_name;
 
 int shared{0};
 int shared2{0};

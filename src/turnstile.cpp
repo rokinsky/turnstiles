@@ -1,5 +1,3 @@
-#include <chrono>
-#include "src/log.h"
 #include "turnstile.h"
 
 #define	TC_TABLESIZE	256			/* Must be power of 2. */
@@ -8,10 +6,26 @@
 #define	TC_HASH(lock)	(((uintptr_t)(lock) >> TC_SHIFT) & TC_MASK)
 #define	TC_LOOKUP(lock)	&turnstile_chains[TC_HASH(lock)]
 
-thread_local std::string t_name;
+struct Turnstile {
+    std::mutex guard;
+
+    Turnstile() {
+        guard.lock();
+    }
+};
+
+struct Chain {
+    std::mutex guard;
+    std::unordered_map<Mutex*, Turnstile*> blocked;
+    std::queue<Turnstile*> free;
+
+    Chain() = default;
+};
 
 /* TODO Clang-Tidy: Initialization of 'turnstile_chains' with static storage duration may throw an exception that cannot be caught */
 Chain turnstile_chains[TC_TABLESIZE];
+
+Mutex::Mutex() : locked(false), first(true), waits(0) {}
 
 bool Mutex::try_lock() {
     bool expected = false;
@@ -78,5 +92,3 @@ void Mutex::unlock() {
         tc->guard.unlock();
     }
 }
-
-

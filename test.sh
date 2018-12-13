@@ -2,7 +2,7 @@
 for (( i=1; i <= 100; i++ ))
 do
     output="$(
-      ./cmake-build-debug/ts
+      ./cmake-build-debug/src/tests/dummy_test
     )"
 
    if echo $output | grep -q "correct? 1";then
