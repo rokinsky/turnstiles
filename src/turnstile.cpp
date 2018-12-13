@@ -1,10 +1,6 @@
 #include "turnstile.h"
 
-#define TC_TABLESIZE 256 /* Must be power of 2. */
-#define TC_MASK (TC_TABLESIZE - 1)
-#define TC_SHIFT 8
-#define TC_HASH(lock) (((uintptr_t)(lock) >> TC_SHIFT) & TC_MASK)
-#define TC_LOOKUP(lock) &turnstile_chains[TC_HASH(lock)]
+const uint32_t TC_TABLESIZE = 256; /* Must be power of 2. */
 
 std::once_flag init;
 
@@ -24,7 +20,17 @@ struct Chain {
 
 std::vector<Chain> turnstile_chains;
 
-Mutex::Mutex() : locked(), first(true), waits(0) {}
+inline uintptr_t tc_hash(Mutex *m) {
+  return (((uintptr_t)(m) >> 8) & (TC_TABLESIZE - 1));
+}
+
+Chain* tc_lookup(Mutex *m) {
+  std::call_once(init,
+                 []() { turnstile_chains = std::vector<Chain>(TC_TABLESIZE); });
+  return &turnstile_chains[tc_hash(m)];
+}
+
+Mutex::Mutex() : locked(false), first(true), waits(0) {}
 
 bool Mutex::try_lock() {
   bool expected = false;
@@ -39,12 +45,11 @@ bool Mutex::try_first() {
 bool Mutex::has_waits() { return waits > 0; }
 
 void Mutex::lock() {
-  std::call_once(init,
-                 []() { turnstile_chains = std::vector<Chain>(TC_TABLESIZE); });
   /* For each thread a turnstile is allocated one time and attached to them */
-  thread_local static std::shared_ptr<Turnstile> turnstile = std::make_shared<Turnstile>();
+  thread_local static
+  std::shared_ptr<Turnstile> turnstile = std::make_shared<Turnstile>();
 
-  auto tc = TC_LOOKUP(this);
+  auto tc = tc_lookup(this);
 
   tc->guard.lock();
 
@@ -83,7 +88,7 @@ void Mutex::lock() {
 }
 
 void Mutex::unlock() {
-  auto tc = TC_LOOKUP(this);
+  auto tc = tc_lookup(this);
 
   tc->guard.lock();
 

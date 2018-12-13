@@ -293,7 +293,7 @@ void x(const std::string& name, int loop_rep) {
 int main() {
     int loop_rep{10};
 
-    const int N = 100;
+    const int N = 2;
     int loops = 0;
 
     std::vector<std::thread> threads;

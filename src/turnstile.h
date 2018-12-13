@@ -2,6 +2,7 @@
 #define SRC_TURNSTILE_H_
 
 #include <atomic>
+#include <array>
 #include <mutex>
 #include <queue>
 #include <thread>
