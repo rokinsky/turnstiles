@@ -6,6 +6,8 @@
 #define	TC_HASH(lock)	(((uintptr_t)(lock) >> TC_SHIFT) & TC_MASK)
 #define	TC_LOOKUP(lock)	&turnstile_chains[TC_HASH(lock)]
 
+std::once_flag init;
+
 struct Turnstile {
     std::mutex guard;
 
@@ -22,10 +24,14 @@ struct Chain {
     Chain() = default;
 };
 
-/* TODO Clang-Tidy: Initialization of 'turnstile_chains' with static storage duration may throw an exception that cannot be caught */
-Chain turnstile_chains[TC_TABLESIZE];
+std::vector<Chain> turnstile_chains;
 
-Mutex::Mutex() : locked(false), first(true), waits(0) {}
+Mutex::Mutex() {
+    locked = false;
+    first = true;
+    waits = 0;
+    std::call_once(init, [](){ turnstile_chains = std::vector<Chain>(TC_TABLESIZE); });
+}
 
 bool Mutex::try_lock() {
     bool expected = false;
