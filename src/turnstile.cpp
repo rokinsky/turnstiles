@@ -17,7 +17,7 @@ struct Turnstile {
 struct Chain {
   std::mutex guard;
   std::unordered_map<Mutex*, std::weak_ptr<Turnstile>> blocked;
-  std::queue<std::weak_ptr<Turnstile>> free;a
+  std::queue<std::weak_ptr<Turnstile>> free;
 
   Chain() = default;
 };
@@ -58,8 +58,6 @@ void Mutex::lock() {
       t = tc->blocked[this];
       tc->free.push(turnstile);
     }
-
-    turnstile = nullptr;
 
     waits++;
     tc->guard.unlock();
