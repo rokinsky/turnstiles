@@ -17,29 +17,27 @@
 #define	TC_HASH(lock)	(((uintptr_t)(lock) >> TC_SHIFT) & TC_MASK)
 #define	TC_LOOKUP(lock)	&turnstile_chains[TC_HASH(lock)]
 
+thread_local std::string t_name;
+
 struct Turnstile {
     std::mutex guard;
-    std::atomic<int> waits{0};
 
     Turnstile() {
         guard.lock();
     }
 };
 
-thread_local Turnstile* turnstile = new Turnstile(); /* TODO Clang-Tidy: Initialization of 'turnstile_chains' with static storage duration may throw an exception that cannot be caught */
-
-thread_local std::string t_name;
-
 class Mutex {
 private:
-    bool expected;
     std::atomic<bool> locked;
     std::atomic<bool> first;
+    std::atomic<uint32_t> waits;
 
     bool try_lock();
     bool try_first();
+    bool has_waits();
 public:
-    Mutex() : expected(false), locked(false), first(true) {}
+    Mutex() : locked(false), first(true), waits(0) {}
 
     void lock();
 
@@ -49,8 +47,6 @@ public:
 class Chain {
 public:
     std::mutex guard;
-//    std::condition_variable cv_m;
-//    std::atomic<int> waits{0};
     std::unordered_map<Mutex*, Turnstile*> blocked;
     std::queue<Turnstile*> free;
 
@@ -60,62 +56,55 @@ public:
 Chain turnstile_chains[TC_TABLESIZE]; /* TODO Clang-Tidy: Initialization of 'turnstile_chains' with static storage duration may throw an exception that cannot be caught */
 
 bool Mutex::try_lock() {
-    expected = false;
+    bool expected = false;
     return locked.compare_exchange_weak(expected, true);
 }
 
 bool Mutex::try_first() {
-    bool exp = true;
-    return first.compare_exchange_weak(exp, false);
+    bool expected = true;
+    return first.compare_exchange_weak(expected, false);
+}
+
+bool Mutex::has_waits() {
+    return waits > 0;
 }
 
 void Mutex::lock() {
     auto tc = TC_LOOKUP(this);
 
+    thread_local static auto *turnstile = new Turnstile(); /* For each thread a turnstile is allocated one time and attached to them */
+
     tc->guard.lock();
 
-    if (try_lock()) {
-        tc->guard.unlock();
-    } else {
+    if (!try_lock()) {
         Turnstile* t;
-        if (try_first()) {  /* if it is the first thread to block, it lends its turnstile to the lock. */
-            tc->blocked[this] = t = turnstile;
-        } else { /* If the lock already has a turnstile, then it gives its turnstile to the lock's turnstile's free list. */
+        if (try_first()) {  /* if it is the first thread to block, */
+            tc->blocked[this] = t = turnstile; /* it lends its turnstile to the lock. */
+        } else { /* If the lock already has a turnstile, */
             t = tc->blocked[this];
-            tc->free.push(turnstile);
+            tc->free.push(turnstile); /* then it gives its turnstile to the lock's turnstile's free list. */
         }
 
         turnstile = nullptr;
 
-        t->waits++;
+        waits++;
         tc->guard.unlock();
 
         t->guard.lock(); /* Inheritance of the critical section */
+        /* When a thread is woken up, */
+        waits--;
 
-        t->waits--; /* When a thread is woken up, */
-
-        if (t->waits > 0) { /* it takes a turnstile from the free list if there are any other waiters.  */
-            turnstile = tc->free.front();
+        if (has_waits()) { /* If there are any other waiters, */
+            turnstile = tc->free.front(); /* it takes a turnstile from the free list */
             tc->free.pop();
-            tc->guard.unlock();
-        } else { /* If it is the only thread blocked on the lock, then it reclaims the turnstile associated with the lock and removes it from the hash table. */
-            turnstile = tc->blocked[this];
-            tc->blocked.erase(this);
+        } else { /* If it is the only thread blocked on the lock, */
+            turnstile = tc->blocked[this]; /* then it reclaims the turnstile associated with the lock */
+            tc->blocked.erase(this); /* and removes it from the hash table. */
             first.store(true);
-            tc->guard.unlock();
         }
     }
 
-/*
-    return;
-    std::unique_lock<std::mutex> lk(tc->guard);
-
-    tc->waits++;
-    auto &cv = tc->cv_m;
-    cv.wait(lk, [this]{ return try_lock(); });
-    tc->waits--;
-*/
-
+    tc->guard.unlock();
 }
 
 void Mutex::unlock() {
@@ -123,22 +112,12 @@ void Mutex::unlock() {
 
     tc->guard.lock();
 
-    if (!first && tc->blocked[this]->waits > 0) {
+    if (has_waits()) {
         tc->blocked[this]->guard.unlock(); /* Inheritance of the critical section */
     } else {
         locked.store(false);
         tc->guard.unlock();
     }
-
-/*
-    return;
-    {
-        std::lock_guard <std::mutex> lk(tc->guard);
-        locked.store(false);
-    {
-
-    tc->cv_m.notify_one();
-*/
 }
 
 
@@ -149,23 +128,23 @@ int shared{0};
 int shared2{0};
 int shared3{0};
 
-std::mutex mut41, mut42, mut43, mut44, mut45, mut46, mut47, mut48, mut49, mut50, mut51, mut52, mut53, mut54, mut55, mut56, mut57, mut58, mut59, mut60, mut61, mut62, mut63, mut64, mut65, mut66, mut67, mut68, mut69, mut70;
-std::mutex mut1, mut2, mut3, mut4, mut5, mut6, mut7, mut8, mut9, mut10, mut11, mut12,mut13,mut14,mut15,mut16,mut17,mut18,mut19,mut20,mut21,mut22,mut23, mut24, mut25, mut26, mut27, mut28, mut29, mut30, mut31, mut32, mut33, mut34, mut35, mut36, mut37, mut38, mut39, mut40;
-//Mutex mut1, mut2, mut3, mut4, mut5, mut6, mut7, mut8, mut9, mut10, mut11, mut12,mut13,mut14,mut15,mut16,mut17,mut18,mut19,mut20,mut21,mut22,mut23, mut24, mut25, mut26, mut27, mut28, mut29, mut30, mut31, mut32, mut33, mut34, mut35, mut36, mut37, mut38, mut39, mut40;
-//Mutex mut41, mut42, mut43, mut44, mut45, mut46, mut47, mut48, mut49, mut50, mut51, mut52, mut53, mut54, mut55, mut56, mut57, mut58, mut59, mut60, mut61, mut62, mut63, mut64, mut65, mut66, mut67, mut68, mut69, mut70;
+//std::mutex mut41, mut42, mut43, mut44, mut45, mut46, mut47, mut48, mut49, mut50, mut51, mut52, mut53, mut54, mut55, mut56, mut57, mut58, mut59, mut60, mut61, mut62, mut63, mut64, mut65, mut66, mut67, mut68, mut69, mut70;
+//std::mutex mut1, mut2, mut3, mut4, mut5, mut6, mut7, mut8, mut9, mut10, mut11, mut12,mut13,mut14,mut15,mut16,mut17,mut18,mut19,mut20,mut21,mut22,mut23, mut24, mut25, mut26, mut27, mut28, mut29, mut30, mut31, mut32, mut33, mut34, mut35, mut36, mut37, mut38, mut39, mut40;
+Mutex mut1, mut2, mut3, mut4, mut5, mut6, mut7, mut8, mut9, mut10, mut11, mut12,mut13,mut14,mut15,mut16,mut17,mut18,mut19,mut20,mut21,mut22,mut23, mut24, mut25, mut26, mut27, mut28, mut29, mut30, mut31, mut32, mut33, mut34, mut35, mut36, mut37, mut38, mut39, mut40;
+Mutex mut41, mut42, mut43, mut44, mut45, mut46, mut47, mut48, mut49, mut50, mut51, mut52, mut53, mut54, mut55, mut56, mut57, mut58, mut59, mut60, mut61, mut62, mut63, mut64, mut65, mut66, mut67, mut68, mut69, mut70;
 
 void f(const std::string& name, int loop_rep) {
     t_name = name;
     for (int i = 0; i < loop_rep; i++) {
         mut1.lock();
         mut2.lock();
-        mut3.lock();
+/*        mut3.lock();
         mut4.lock();
         mut5.lock();
         mut6.lock();
         mut7.lock();
         mut8.lock();
-/*        mut9.lock();
+        mut9.lock();
         mut10.lock();
         mut11.lock();
         mut12.lock();
@@ -235,13 +214,13 @@ void f(const std::string& name, int loop_rep) {
         mut12.unlock();
         mut11.unlock();
         mut10.unlock();
-        mut9.unlock();*/
+        mut9.unlock();
         mut8.unlock();
         mut7.unlock();
         mut6.unlock();
         mut5.unlock();
         mut4.unlock();
-        mut3.unlock();
+        mut3.unlock();*/
         mut2.unlock();
         mut1.unlock();
     }
@@ -446,5 +425,4 @@ int main() {
     }
 
     log("result is correct? ", (loop_rep * N * loops == shared + shared2 + shared3), "");
-//    std::cout << "result is correct? " << (loop_rep * N * loops == shared + shared2 + shared3) << std::endl;
 }
