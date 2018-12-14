@@ -26,8 +26,8 @@ class Mutex {
   Mutex();
   Mutex(const Mutex&) = delete;
 
-  void lock();    // NOLINT
-  void unlock();  // NOLINT
+  void lock();   /* NOLINT */
+  void unlock(); /* NOLINT */
 };
 
-#endif  // SRC_TURNSTILE_H_
+#endif /* SRC_TURNSTILE_H_ */
