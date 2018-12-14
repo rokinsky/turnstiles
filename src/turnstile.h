@@ -11,9 +11,11 @@
 #include <vector>
 
 struct Turnstile {
-    std::condition_variable cv;
-    std::atomic<bool> release{false};
-    std::atomic<uint32_t> waits{0};
+  std::condition_variable cv;
+  bool release;
+  uint32_t waits;
+
+  Turnstile() : release(false), waits(0) {}
 };
 
 class Mutex {

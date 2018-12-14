@@ -38,7 +38,7 @@ void f(const std::string& name, int loop_rep) {
     for (int i = 0; i < loop_rep; i++) {
         mut1.lock();
         mut2.lock();
-/*        mut3.lock();
+        mut3.lock();
         mut4.lock();
         mut5.lock();
         mut6.lock();
@@ -75,13 +75,13 @@ void f(const std::string& name, int loop_rep) {
         mut37.lock();
         mut38.lock();
         mut39.lock();
-        mut40.lock();*/
+        mut40.lock();
 
         int local = shared;
         local += 1;
         //std::this_thread::sleep_for(std::chrono::milliseconds(10));
         shared = local;
-/*        mut40.unlock();
+        mut40.unlock();
         mut39.unlock();
         mut38.unlock();
         mut37.unlock();
@@ -118,7 +118,7 @@ void f(const std::string& name, int loop_rep) {
         mut6.unlock();
         mut5.unlock();
         mut4.unlock();
-        mut3.unlock();*/
+        mut3.unlock();
         mut2.unlock();
         mut1.unlock();
     }

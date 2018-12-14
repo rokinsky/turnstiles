@@ -1,8 +1,5 @@
 #include "turnstile.h"
 
-#include <iostream>
-#include <memory>
-
 const uint32_t TC_TABLESIZE = 256; /* Must be power of 2. */
 
 struct Chain {
@@ -14,6 +11,12 @@ struct Chain {
 
 std::once_flag init;
 std::vector<Chain> turnstile_chains;
+
+/*
+ * When Mutex's pointer t references here,
+ * it means that Mutex is ready to block threads,
+ * but object hasn't turnstile yet.
+ */
 std::unique_ptr<Turnstile> special;
 
 inline uintptr_t tc_hash(Mutex *m) {
@@ -30,33 +33,34 @@ Chain *tc_lookup(Mutex *m) {
 
 Mutex::Mutex() : t(nullptr) {}
 
-thread_local std::once_flag t_init;
-thread_local std::unique_ptr<Turnstile> turnstile;
-
 void Mutex::lock() {
   /* For each thread a turnstile is allocated one time and attached to them */
-  std::call_once(t_init, []() { turnstile.reset(new Turnstile); });
+  thread_local static std::unique_ptr<Turnstile> turnstile(new Turnstile);
 
   auto tc = tc_lookup(this);
 
   std::unique_lock<std::mutex> lk(tc->guard);
 
-  if (t == nullptr) {
+  if (t == nullptr) { /* If a thread is first inside, */
+    /* then makes object ready to block threads. */
     t = special.get();
   } else {
-
-    if (t == special.get()) {
+    if (t == special.get()) { /* If it is the first thread to block, */
+      /* then it lends its turnstile to the lock. */
       t = turnstile.release();
-    } else {
+    } else { /* If the lock already has a turnstile, */
+      /* then it gives its turnstile to the chain's turnstile's free list. */
       tc->free.push(std::move(turnstile));
     }
 
+    /* A thread goes to sleep... */
     t->waits++;
 
-    t->cv.wait(lk, [&]() { return t->release == true; });
+    t->cv.wait(lk, [&]() { return t->release; });
     t->release = false;
 
     t->waits--;
+    /* When a thread is woken up: */
 
     if (t->waits > 0) { /* If there are any other waiters, */
       /* it takes a turnstile from the free list */
@@ -64,7 +68,7 @@ void Mutex::lock() {
       tc->free.pop();
     } else { /* If it is the only thread blocked on the lock, */
       /* then it reclaims the turnstile associated with the lock */
-      /* and removes it from the hash table. */
+      /* and makes object ready to block threads. */
       turnstile.reset(t);
       t = special.get();
     }
@@ -74,12 +78,12 @@ void Mutex::lock() {
 void Mutex::unlock() {
   auto tc = tc_lookup(this);
 
-  std::unique_lock<std::mutex> lk(tc->guard);
+  std::lock_guard<std::mutex> lk(tc->guard);
 
-  if (t == special.get()) {
+  if (t == special.get()) { /* If object hasn't a turnstile */
     t = nullptr;
   } else {
-    t->release.store(true);
+    t->release = true;
     t->cv.notify_one();
   }
 }
