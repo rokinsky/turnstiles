@@ -1,9 +1,9 @@
 #include "turnstile.h"
 
-const uint32_t TC_TABLESIZE = 256; /* Must be power of 2. */
+const uint32_t TC_TABLESIZE = 256;
 
 struct Chain {
-  std::mutex guard;
+  std::mutex cv_m;
   std::queue<std::unique_ptr<Turnstile>> free;
 
   Chain() = default;
@@ -24,8 +24,8 @@ thread_local std::unique_ptr<Turnstile> turnstile;
  */
 std::unique_ptr<Turnstile> ready;
 
-inline uintptr_t tc_hash(Mutex *m) {
-  return (((uintptr_t)(m) >> 8) & (TC_TABLESIZE - 1));
+inline std::uintptr_t tc_hash(Mutex *m) {
+  return reinterpret_cast<std::uintptr_t>(m) % TC_TABLESIZE;
 }
 
 inline Chain *tc_lookup(Mutex *m) { return &turnstile_chains[tc_hash(m)]; }
@@ -47,7 +47,7 @@ void Mutex::lock() {
 
   auto tc = tc_lookup(this);
 
-  std::unique_lock<std::mutex> lk(tc->guard);
+  std::unique_lock<std::mutex> lk(tc->cv_m);
 
   if (t == nullptr) { /* If a thread is first inside, */
     /* then makes object ready to block threads. */
@@ -86,7 +86,7 @@ void Mutex::lock() {
 void Mutex::unlock() {
   auto tc = tc_lookup(this);
 
-  std::lock_guard<std::mutex> lk(tc->guard);
+  std::lock_guard<std::mutex> lk(tc->cv_m);
 
   if (t == ready.get()) { /* If object hasn't a turnstile */
     t = nullptr;
