@@ -293,7 +293,7 @@ void x(const std::string& name, int loop_rep) {
 int main() {
     int loop_rep{10};
 
-    const int N = 2;
+    const int N = 100;
     int loops = 0;
 
     std::vector<std::thread> threads;
@@ -304,7 +304,7 @@ int main() {
     }
     loops++;
 
-    for (int i = 0; i < N; i++) {
+/*    for (int i = 0; i < N; i++) {
         threads.emplace_back( std::thread{[i, loop_rep]{ z("z" + std::to_string(i), loop_rep); }});
     }
     loops++;
@@ -312,7 +312,7 @@ int main() {
     for (int i = 0; i < N; i++) {
         threads.emplace_back( std::thread{[i, loop_rep]{ x("x" + std::to_string(i), loop_rep); }});
     }
-    loops++;
+    loops++;*/
 
     for (auto &t : threads) {
         t.join();

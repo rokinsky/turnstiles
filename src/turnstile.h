@@ -2,13 +2,13 @@
 #define SRC_TURNSTILE_H_
 
 #include <atomic>
-#include <array>
+#include <condition_variable>
+#include <memory>
 #include <mutex>
 #include <queue>
 #include <thread>
 #include <unordered_map>
 #include <vector>
-#include <memory>
 
 class Mutex {
  private:
