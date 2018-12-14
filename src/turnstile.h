@@ -10,15 +10,15 @@
 #include <unordered_map>
 #include <vector>
 
+struct Turnstile {
+    std::condition_variable cv;
+    std::atomic<bool> release{false};
+    std::atomic<uint32_t> waits{0};
+};
+
 class Mutex {
  private:
-  std::atomic<bool> locked;  // 1 byte
-  std::atomic<bool> first;   // 1 byte
-  uint32_t waits;            // 4 bytes
-
-  bool try_lock();
-  bool try_first();
-  bool has_waits();
+  Turnstile* t;
 
  public:
   Mutex();

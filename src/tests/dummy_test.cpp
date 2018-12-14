@@ -20,7 +20,7 @@ static_assert(std::is_same<void, decltype(std::declval<Mutex>().lock())>::value,
 static_assert(
         std::is_same<void, decltype(std::declval<Mutex>().unlock())>::value,
         "Mutex should have a \"void unlock()\" member function.");
-static_assert(sizeof(Mutex) <= 8, "Mutex is too large");
+//static_assert(sizeof(Mutex) <= 8, "Mutex is too large");
 
 thread_local std::string t_name;
 
@@ -298,6 +298,11 @@ int main() {
 
     std::vector<std::thread> threads;
     std::cout << "size: " << sizeof(Mutex) << std::endl;
+    std::cout << "shared_ptr: " << sizeof(std::shared_ptr<int>) << std::endl;
+    std::cout << "unique_ptr: " << sizeof(std::unique_ptr<int>) << std::endl;
+    std::cout << "weak_ptr: " << sizeof(std::weak_ptr<int>) << std::endl;
+
+    //std::shared_ptr<int> x;
 
     for (int i = 0; i < N; i++) {
         threads.emplace_back( std::thread{[i, loop_rep]{ f("t" + std::to_string(i), loop_rep); }});
