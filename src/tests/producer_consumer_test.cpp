@@ -66,13 +66,13 @@ void test(size_t producers, size_t consumers, size_t count) {
     std::cout << "Beginning test with " << producers << " producers, " << consumers << " consumers and a total of "
               << count * producers << " portions" << std::endl;
 
-    Buffer<T, M> buffer = Buffer<T, M>();
+    Buffer<T, M> buffer;
     std::vector<std::thread> threads;
     threads.reserve(producers + consumers);
 
     assert((producers * count) % consumers == 0);
     auto consumerLoad = producers * count / consumers;
-    std::atomic<T> sum = 0;
+    std::atomic<T> sum{0};
 
     for (size_t i = 0; i < producers; ++i) {
         threads.emplace_back([&buffer, count] { produceToBuffer<T>(buffer, count); });
