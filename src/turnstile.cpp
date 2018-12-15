@@ -18,9 +18,9 @@ thread_local std::once_flag init_t;
 thread_local std::unique_ptr<Turnstile> turnstile;
 
 /*
- * When Mutex's pointer t references here,
- * it means that Mutex is ready to block threads,
- * but object hasn't turnstile yet.
+ * When a lock references here,
+ * it means that the lock is ready to block threads,
+ * but hasn't turnstile yet.
  */
 std::unique_ptr<Turnstile> ready;
 
@@ -45,51 +45,68 @@ inline Chain *tc_lookup(Mutex *m) {
 
 Mutex::Mutex() : t(nullptr) {}
 
+/*
+ * If a thread is the first there,
+ * then it makes Mutex ready to block threads
+ * and goes to the critical section.
+ *
+ * If it is the first thread to block,
+ * then it lends its turnstile to Mutex.
+ * Else if Mutex already has a turnstile,
+ * then it gives its turnstile to the chain's turnstile's free list.
+ * A thread goes to sleep...
+ *
+ * When a thread is woken up...
+ * If there are any other waiters,
+ * it takes a turnstile from the free list.
+ * Else if it is the only thread blocked on Mutex,
+ * then it reclaims the turnstile associated with Mutex
+ * and makes Mutex ready to block threads.
+ * A thread goes to the critical section.
+ */
 void Mutex::lock() {
   auto tc = tc_lookup(this);
 
   std::unique_lock<std::mutex> lk(tc->cv_m);
 
-  if (t == nullptr) { /* If a thread is first inside, */
-    /* then makes object ready to block threads. */
+  if (t == nullptr) {
     t = ready.get();
   } else {
-    if (t == ready.get()) { /* If it is the first thread to block, */
-      /* then it lends its turnstile to the lock. */
+    if (t == ready.get()) {
       t = turnstile.release();
-    } else { /* If the lock already has a turnstile, */
-      /* then it gives its turnstile to the chain's turnstile's free list. */
+    } else {
       tc->free.push(std::move(turnstile));
     }
 
-    /* A thread goes to sleep... */
     t->waits++;
 
     t->cv.wait(lk, [&]() { return t->release; });
     t->release = false;
 
     t->waits--;
-    /* When a thread is woken up: */
 
-    if (t->waits > 0) { /* If there are any other waiters, */
-      /* it takes a turnstile from the free list */
+    if (t->waits > 0) {
       turnstile = std::move(tc->free.front());
       tc->free.pop();
-    } else { /* If it is the only thread blocked on the lock, */
-      /* then it reclaims the turnstile associated with the lock */
-      /* and makes object ready to block threads. */
+    } else {
       turnstile.reset(t);
       t = ready.get();
     }
   }
 }
 
+/*
+ * If the lock was ready to block threads,
+ * then it makes Mutex free.
+ * Else if some thread sleeps,
+ * then it will wake its up.
+ */
 void Mutex::unlock() {
   auto tc = tc_lookup(this);
 
   std::lock_guard<std::mutex> lk(tc->cv_m);
 
-  if (t == ready.get()) { /* If object hasn't a turnstile */
+  if (t == ready.get()) {
     t = nullptr;
   } else if (t != nullptr) {
     t->release = true;

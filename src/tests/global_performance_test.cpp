@@ -70,6 +70,7 @@ void test(size_t criticalSections, size_t threadsPerSection, size_t repeatsPerTh
 
     for(auto& section : sections) {
         assert(section.getCounter() == threadsPerSection * repeatsPerThread);
+        section.getCounter();
     }
 }
 
