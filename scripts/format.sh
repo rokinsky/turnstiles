@@ -19,7 +19,7 @@ fi
 
 format_diff() {
   local f="$1"
-  "$DIFF_CMD" $DIFF_PARAMS "$f" <(clang-format -style=google "$f")
+  "$DIFF_CMD" $DIFF_PARAMS "$f" <(clang-format -style=google "$f") | patch "$f"
 }
 
 export DIFF_CMD
@@ -30,4 +30,3 @@ find "${PROJ_DIR}/src" -type f \
   -print0 \
   | xargs -0 -n1 bash -c 'format_diff "$1"' {} \
   | $PAGER
-

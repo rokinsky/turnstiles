@@ -1,10 +1,10 @@
-#include "../turnstile.h"
 #include <iostream>
 #include <map>
 #include <mutex>
 #include <stdexcept>
 #include <thread>
 #include <vector>
+#include "../turnstile.h"
 
 static_assert(std::is_destructible<Mutex>::value,
               "Mutex should be destriuctible.");
@@ -17,11 +17,11 @@ static_assert(std::is_default_constructible<Mutex>::value,
 static_assert(std::is_same<void, decltype(std::declval<Mutex>().lock())>::value,
               "Mutex should have a \"void lock()\" member function.");
 static_assert(
-        std::is_same<void, decltype(std::declval<Mutex>().unlock())>::value,
-        "Mutex should have a \"void unlock()\" member function.");
+    std::is_same<void, decltype(std::declval<Mutex>().unlock())>::value,
+    "Mutex should have a \"void unlock()\" member function.");
 static_assert(sizeof(Mutex) <= 8, "Mutex is too large");
 
-template<typename M>
+template <typename M>
 void DummyTest() {
   int const kNumRounds = 100000;
   int const threads = 300;
@@ -33,10 +33,10 @@ void DummyTest() {
   std::vector<std::thread> v;
   for (int i = 0; i < threads; ++i) {
     v.emplace_back([&]() {
-        for (int i = 0; i < kNumRounds; ++i) {
-          std::lock_guard<M> lk(mu_tab[i % mutexes]);
-          ++shared_cntr[i % mutexes];
-        }
+      for (int i = 0; i < kNumRounds; ++i) {
+        std::lock_guard<M> lk(mu_tab[i % mutexes]);
+        ++shared_cntr[i % mutexes];
+      }
     });
   }
 
@@ -49,11 +49,12 @@ void DummyTest() {
     sum += shared_cntr[i];
   }
 
-  std::cout << "result is correct? " << (sum == kNumRounds * threads) << std::endl;
+  std::cout << "result is correct? " << (sum == kNumRounds * threads)
+            << std::endl;
 
   if (sum != kNumRounds * threads) {
-    throw std::logic_error("Counter==" + std::to_string(sum) +
-                           " expected==" + std::to_string(kNumRounds * threads));
+    throw std::logic_error("Counter==" + std::to_string(sum) + " expected==" +
+                           std::to_string(kNumRounds * threads));
   }
 }
 
@@ -75,11 +76,16 @@ int main() {
     DummyTest<std::mutex>();
     auto stopStd = std::chrono::high_resolution_clock::now();
 
-    std::cout << "std::mutex time: " << (stopStd - startStd).count() * 0.000000001 << " s" << std::endl;
-    std::cout << "Mutex time:      " << (stopMutex - startMutex).count() * 0.000000001 << " s" << std::endl;
+    std::cout << "std::mutex time: "
+              << (stopStd - startStd).count() * 0.000000001 << " s"
+              << std::endl;
+    std::cout << "Mutex time:      "
+              << (stopMutex - startMutex).count() * 0.000000001 << " s"
+              << std::endl;
     std::cout << "slower: "
-    << ((float)(stopMutex - startMutex).count() / (stopStd - startStd).count())
-    << " times" << std::endl;
+              << ((float)(stopMutex - startMutex).count() /
+                  (stopStd - startStd).count())
+              << " times" << std::endl;
   } catch (std::exception &e) {
     std::cout << "Exception: " << e.what() << std::endl;
     return 1;
