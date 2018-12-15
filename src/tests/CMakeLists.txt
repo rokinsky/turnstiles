@@ -12,3 +12,8 @@ add_executable(producer_consumer_test producer_consumer_test.cpp)
 target_link_libraries(producer_consumer_test turnstile_lib)
 target_link_libraries(producer_consumer_test "${CMAKE_THREAD_LIBS_INIT}")
 add_test(producer_consumer_test producer_consumer_test)
+
+add_executable(global_performance_test global_performance_test.cpp)
+target_link_libraries(global_performance_test turnstile_lib)
+target_link_libraries(global_performance_test "${CMAKE_THREAD_LIBS_INIT}")
+add_test(global_performance_test global_performance_test)
