@@ -21,11 +21,12 @@ static_assert(
         "Mutex should have a \"void unlock()\" member function.");
 static_assert(sizeof(Mutex) <= 8, "Mutex is too large");
 
+template<typename M>
 void DummyTest() {
   int const kNumRounds = 100000;
-  int const threads = 2000;
+  int const threads = 300;
   int const mutexes = 1000;
-  Mutex mu_tab[mutexes];
+  M mu_tab[mutexes];
   int shared_cntr[mutexes];
   for (int i = 0; i < mutexes; ++i) shared_cntr[i] = 0;
 
@@ -33,7 +34,7 @@ void DummyTest() {
   for (int i = 0; i < threads; ++i) {
     v.emplace_back([&]() {
         for (int i = 0; i < kNumRounds; ++i) {
-          std::lock_guard<Mutex> lk(mu_tab[i % mutexes]);
+          std::lock_guard<M> lk(mu_tab[i % mutexes]);
           ++shared_cntr[i % mutexes];
         }
     });
@@ -65,7 +66,20 @@ int main() {
     m.unlock();
     m.lock();
     m.unlock();
-    DummyTest();
+    std::cout << "Performance comparison..." << std::endl;
+
+    auto startMutex = std::chrono::high_resolution_clock::now();
+    DummyTest<Mutex>();
+    auto stopMutex = std::chrono::high_resolution_clock::now();
+    auto startStd = std::chrono::high_resolution_clock::now();
+    DummyTest<std::mutex>();
+    auto stopStd = std::chrono::high_resolution_clock::now();
+
+    std::cout << "std::mutex time: " << (stopStd - startStd).count() * 0.000000001 << " s" << std::endl;
+    std::cout << "Mutex time:      " << (stopMutex - startMutex).count() * 0.000000001 << " s" << std::endl;
+    std::cout << "slower: "
+    << ((float)(stopMutex - startMutex).count() / (stopStd - startStd).count())
+    << " times" << std::endl;
   } catch (std::exception &e) {
     std::cout << "Exception: " << e.what() << std::endl;
     return 1;
