@@ -1,5 +1,4 @@
-#include "turnstile.h"
-
+#include "../turnstile.h"
 #include <iostream>
 #include <map>
 #include <mutex>
@@ -18,22 +17,25 @@ static_assert(std::is_default_constructible<Mutex>::value,
 static_assert(std::is_same<void, decltype(std::declval<Mutex>().lock())>::value,
               "Mutex should have a \"void lock()\" member function.");
 static_assert(
-    std::is_same<void, decltype(std::declval<Mutex>().unlock())>::value,
-    "Mutex should have a \"void unlock()\" member function.");
+        std::is_same<void, decltype(std::declval<Mutex>().unlock())>::value,
+        "Mutex should have a \"void unlock()\" member function.");
 static_assert(sizeof(Mutex) <= 8, "Mutex is too large");
 
 void DummyTest() {
-  int shared_cntr = 0;
-  int const kNumRounds = 100;
-  Mutex mu;
+  int const kNumRounds = 100000;
+  int const threads = 2000;
+  int const mutexes = 1000;
+  Mutex mu_tab[mutexes];
+  int shared_cntr[mutexes];
+  for (int i = 0; i < mutexes; ++i) shared_cntr[i] = 0;
 
   std::vector<std::thread> v;
-  for (int i = 0; i < 2; ++i) {
+  for (int i = 0; i < threads; ++i) {
     v.emplace_back([&]() {
-      for (int i = 0; i < kNumRounds; ++i) {
-        std::lock_guard<Mutex> lk(mu);
-        ++shared_cntr;
-      }
+        for (int i = 0; i < kNumRounds; ++i) {
+          std::lock_guard<Mutex> lk(mu_tab[i % mutexes]);
+          ++shared_cntr[i % mutexes];
+        }
     });
   }
 
@@ -41,16 +43,22 @@ void DummyTest() {
     t.join();
   }
 
-  if (shared_cntr != kNumRounds * 2) {
-    throw std::logic_error("Counter==" + std::to_string(shared_cntr) +
-                           " expected==" + std::to_string(kNumRounds * 2));
+  int sum = 0;
+  for (int i = 0; i < mutexes; ++i) {
+    sum += shared_cntr[i];
+  }
+
+  std::cout << "result is correct? " << (sum == kNumRounds * threads) << std::endl;
+
+  if (sum != kNumRounds * threads) {
+    throw std::logic_error("Counter==" + std::to_string(sum) +
+                           " expected==" + std::to_string(kNumRounds * threads));
   }
 }
 
 int main() {
   try {
     Mutex m;
-    std::cout << sizeof(Mutex);
     m.lock();
     m.unlock();
     m.lock();
