@@ -24,12 +24,6 @@ thread_local std::unique_ptr<Turnstile> turnstile;
  */
 std::unique_ptr<Turnstile> ready;
 
-inline std::uintptr_t tc_hash(Mutex *m) {
-  return reinterpret_cast<std::uintptr_t>(m) % TC_TABLESIZE;
-}
-
-inline Chain *tc_lookup(Mutex *m) { return &turnstile_chains[tc_hash(m)]; }
-
 inline void initialization() {
   std::call_once(init_t, []() {
     turnstile.reset(new Turnstile);
@@ -40,11 +34,18 @@ inline void initialization() {
   });
 }
 
+inline std::uintptr_t tc_hash(Mutex *m) {
+  return reinterpret_cast<std::uintptr_t>(m) % TC_TABLESIZE;
+}
+
+inline Chain *tc_lookup(Mutex *m) {
+  initialization();
+  return &turnstile_chains[tc_hash(m)];
+}
+
 Mutex::Mutex() : t(nullptr) {}
 
 void Mutex::lock() {
-  initialization();
-
   auto tc = tc_lookup(this);
 
   std::unique_lock<std::mutex> lk(tc->cv_m);
@@ -90,7 +91,7 @@ void Mutex::unlock() {
 
   if (t == ready.get()) { /* If object hasn't a turnstile */
     t = nullptr;
-  } else {
+  } else if (t != nullptr) {
     t->release = true;
     t->cv.notify_one();
   }
