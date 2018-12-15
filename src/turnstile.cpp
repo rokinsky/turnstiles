@@ -9,7 +9,7 @@ struct Chain {
   Chain() = default;
 };
 
-/* First thread allocates global synchronized structure. */
+/* The first thread allocates global synchronized structure. */
 std::once_flag init;
 std::vector<Chain> turnstile_chains;
 
@@ -48,12 +48,12 @@ Mutex::Mutex() : t(nullptr) {}
 /*
  * If a thread is the first there,
  * then it makes Mutex ready to block threads
- * and goes to the critical section.
+ * and goes to the critical section...
  *
  * If it is the first thread to block,
  * then it lends its turnstile to Mutex.
  * Else if Mutex already has a turnstile,
- * then it gives its turnstile to the chain's turnstile's free list.
+ * then it gives its turnstile to free list.
  * A thread goes to sleep...
  *
  * When a thread is woken up...
@@ -62,7 +62,7 @@ Mutex::Mutex() : t(nullptr) {}
  * Else if it is the only thread blocked on Mutex,
  * then it reclaims the turnstile associated with Mutex
  * and makes Mutex ready to block threads.
- * A thread goes to the critical section.
+ * A thread goes to the critical section...
  */
 void Mutex::lock() {
   auto tc = tc_lookup(this);
@@ -96,7 +96,8 @@ void Mutex::lock() {
 }
 
 /*
- * If the lock was ready to block threads,
+ * If Mutex hasn't a turnstile,
+ * but was ready to block threads,
  * then it makes Mutex free.
  * Else if some thread sleeps,
  * then it will wake its up.
