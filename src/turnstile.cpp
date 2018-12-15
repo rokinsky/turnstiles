@@ -1,17 +1,11 @@
 #include "turnstile.h"
 
 const uint32_t TC_TABLESIZE = 256;
-
-struct Chain {
-  std::mutex cv_m;
-  std::queue<std::unique_ptr<Turnstile>> free;
-
-  Chain() = default;
-};
+const uint32_t TC_MASK = TC_TABLESIZE - 1;
 
 /* The first thread allocates global synchronized structure. */
 std::once_flag init;
-std::vector<Chain> turnstile_chains;
+std::vector<std::mutex> turnstile_m;
 
 /* For each thread a turnstile is allocated one time and attached to them. */
 thread_local std::once_flag init_t;
@@ -28,19 +22,19 @@ inline void initialization() {
   std::call_once(init_t, []() {
     turnstile.reset(new Turnstile);
     std::call_once(init, []() {
-      turnstile_chains = std::vector<Chain>(TC_TABLESIZE);
+      turnstile_m = std::vector<std::mutex>(TC_TABLESIZE);
       ready.reset(new Turnstile);
     });
   });
 }
 
 inline std::uintptr_t tc_hash(Mutex *m) {
-  return reinterpret_cast<std::uintptr_t>(m) % TC_TABLESIZE;
+  return reinterpret_cast<std::uintptr_t>(m) & TC_MASK;
 }
 
-inline Chain *tc_lookup(Mutex *m) {
+inline std::mutex *tc_lookup(Mutex *m) {
   initialization();
-  return &turnstile_chains[tc_hash(m)];
+  return &turnstile_m[tc_hash(m)];
 }
 
 Mutex::Mutex() : t(nullptr) {}
@@ -67,7 +61,7 @@ Mutex::Mutex() : t(nullptr) {}
 void Mutex::lock() {
   auto tc = tc_lookup(this);
 
-  std::unique_lock<std::mutex> lk(tc->cv_m);
+  std::unique_lock<std::mutex> lk(*tc);
 
   if (t == nullptr) {
     t = ready.get();
@@ -75,19 +69,15 @@ void Mutex::lock() {
     if (t == ready.get()) {
       t = turnstile.release();
     } else {
-      tc->free.push(std::move(turnstile));
+      t->free.push(std::move(turnstile));
     }
-
-    t->waits++;
 
     t->cv.wait(lk, [&]() { return t->release; });
     t->release = false;
 
-    t->waits--;
-
-    if (t->waits > 0) {
-      turnstile = std::move(tc->free.front());
-      tc->free.pop();
+    if (!t->free.empty()) {
+      turnstile = std::move(t->free.front());
+      t->free.pop();
     } else {
       turnstile.reset(t);
       t = ready.get();
@@ -105,7 +95,7 @@ void Mutex::lock() {
 void Mutex::unlock() {
   auto tc = tc_lookup(this);
 
-  std::lock_guard<std::mutex> lk(tc->cv_m);
+  std::lock_guard<std::mutex> lk(*tc);
 
   if (t == ready.get()) {
     t = nullptr;
