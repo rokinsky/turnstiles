@@ -13,7 +13,7 @@
 struct Turnstile {
   std::condition_variable cv;
   bool release = false;
-  std::queue<std::unique_ptr<Turnstile>> free;
+  uint32_t waits = 0;
 };
 
 class Mutex {

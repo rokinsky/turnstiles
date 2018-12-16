@@ -21,7 +21,6 @@ inline static std::mutex *m_lookup(Mutex *m) { return &M[m_hash(m)]; }
  * and attached to them.
  */
 thread_local std::unique_ptr<Turnstile> t_turnstile;
-thread_local std::once_flag init_t;
 
 /*
  * When a lock references here,
@@ -31,13 +30,6 @@ thread_local std::once_flag init_t;
  */
 std::unique_ptr<Turnstile> ready;
 std::once_flag init;
-
-inline void initialization() {
-  std::call_once(init_t, []() {
-    t_turnstile.reset(new Turnstile);
-    std::call_once(init, []() { ready.reset(new Turnstile); });
-  });
-}
 
 Mutex::Mutex() : m_turnstile(nullptr) {}
 
@@ -61,7 +53,7 @@ Mutex::Mutex() : m_turnstile(nullptr) {}
  * A thread goes to the critical section...
  */
 void Mutex::lock() {
-  initialization();
+  std::call_once(init, []() { ready.reset(new Turnstile); });
 
   auto m = m_lookup(this);
 
@@ -71,18 +63,21 @@ void Mutex::lock() {
     m_turnstile = ready.get();
   } else {
     if (m_turnstile == ready.get()) {
-      m_turnstile = t_turnstile.release();
-    } else {
-      m_turnstile->free.push(std::move(t_turnstile));
+      if (t_turnstile) {
+        m_turnstile = t_turnstile.release();
+      } else {
+        m_turnstile = new Turnstile;
+      }
     }
+
+    m_turnstile->waits++;
 
     m_turnstile->cv.wait(lk, [&]() { return m_turnstile->release; });
     m_turnstile->release = false;
 
-    if (!m_turnstile->free.empty()) {
-      t_turnstile = std::move(m_turnstile->free.front());
-      m_turnstile->free.pop();
-    } else {
+    m_turnstile->waits--;
+
+    if (m_turnstile->waits == 0) {
       t_turnstile.reset(m_turnstile);
       m_turnstile = ready.get();
     }
