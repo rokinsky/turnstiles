@@ -4,8 +4,8 @@
  * Global protection for Mutexes.
  * Try to distribute Mutexes evenly among std::mutex
  */
-const uint32_t M_TABLESIZE = 1024;
-const uint32_t M_MASK = M_TABLESIZE - 1;
+const std::size_t M_TABLESIZE = 512;
+const std::size_t M_MASK = M_TABLESIZE - 1;
 
 std::array<std::mutex, M_TABLESIZE> M;
 
