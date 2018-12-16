@@ -1,57 +1,53 @@
 diff --git a/src/turnstile.cpp b/src/turnstile.cpp
-index 5f9e009..fbcf4ce 100644
+index 5f9e009..c76154c 100644
 --- a/src/turnstile.cpp
 +++ b/src/turnstile.cpp
-@@ -1,5 +1,116 @@
+@@ -1,5 +1,110 @@
  #include "turnstile.h"
  
 -Mutex::Mutex() {}
 -void Mutex::lock() {}
 -void Mutex::unlock() {}
-+const uint32_t TC_TABLESIZE = 256;
++/*
++ * Global protection for Mutexes.
++ * Try to distribute Mutexes evenly among std::mutex
++ */
++const uint32_t M_TABLESIZE = 1024;
++const uint32_t M_MASK = M_TABLESIZE - 1;
 +
-+struct Chain {
-+  std::mutex cv_m;
-+  std::queue<std::unique_ptr<Turnstile>> free;
++std::array<std::mutex, M_TABLESIZE> M;
 +
-+  Chain() = default;
-+};
++inline static std::uintptr_t m_hash(Mutex *m) {
++  return reinterpret_cast<std::uintptr_t>(m) & M_MASK;
++}
 +
-+/* The first thread allocates global synchronized structure. */
-+std::once_flag init;
-+std::vector<Chain> turnstile_chains;
++inline static std::mutex *m_lookup(Mutex *m) { return &M[m_hash(m)]; }
 +
-+/* For each thread a turnstile is allocated one time and attached to them. */
++/*
++ * For each thread
++ * a turnstile is allocated one time
++ * and attached to them.
++ */
++thread_local std::unique_ptr<Turnstile> t_turnstile;
 +thread_local std::once_flag init_t;
-+thread_local std::unique_ptr<Turnstile> turnstile;
 +
 +/*
 + * When a lock references here,
 + * it means that the lock is ready to block threads,
 + * but hasn't turnstile yet.
++ * The first thread global there will allocate it.
 + */
 +std::unique_ptr<Turnstile> ready;
++std::once_flag init;
 +
 +inline void initialization() {
 +  std::call_once(init_t, []() {
-+    turnstile.reset(new Turnstile);
-+    std::call_once(init, []() {
-+      turnstile_chains = std::vector<Chain>(TC_TABLESIZE);
-+      ready.reset(new Turnstile);
-+    });
++    t_turnstile.reset(new Turnstile);
++    std::call_once(init, []() { ready.reset(new Turnstile); });
 +  });
 +}
 +
-+inline std::uintptr_t tc_hash(Mutex *m) {
-+  return reinterpret_cast<std::uintptr_t>(m) % TC_TABLESIZE;
-+}
-+
-+inline Chain *tc_lookup(Mutex *m) {
-+  initialization();
-+  return &turnstile_chains[tc_hash(m)];
-+}
-+
-+Mutex::Mutex() : t(nullptr) {}
++Mutex::Mutex() : m_turnstile(nullptr) {}
 +
 +/*
 + * If a thread is the first there,
@@ -61,7 +57,7 @@ index 5f9e009..fbcf4ce 100644
 + * If it is the first thread to block,
 + * then it lends its turnstile to Mutex.
 + * Else if Mutex already has a turnstile,
-+ * then it gives its turnstile to free list.
++ * then it gives its turnstile to blocked turnstile's free list.
 + * A thread goes to sleep...
 + *
 + * When a thread is woken up...
@@ -73,32 +69,30 @@ index 5f9e009..fbcf4ce 100644
 + * A thread goes to the critical section...
 + */
 +void Mutex::lock() {
-+  auto tc = tc_lookup(this);
++  initialization();
 +
-+  std::unique_lock<std::mutex> lk(tc->cv_m);
++  auto m = m_lookup(this);
 +
-+  if (t == nullptr) {
-+    t = ready.get();
++  std::unique_lock<std::mutex> lk(*m);
++
++  if (m_turnstile == nullptr) {
++    m_turnstile = ready.get();
 +  } else {
-+    if (t == ready.get()) {
-+      t = turnstile.release();
++    if (m_turnstile == ready.get()) {
++      m_turnstile = t_turnstile.release();
 +    } else {
-+      tc->free.push(std::move(turnstile));
++      m_turnstile->free.push(std::move(t_turnstile));
 +    }
 +
-+    t->waits++;
++    m_turnstile->cv.wait(lk, [&]() { return m_turnstile->release; });
++    m_turnstile->release = false;
 +
-+    t->cv.wait(lk, [&]() { return t->release; });
-+    t->release = false;
-+
-+    t->waits--;
-+
-+    if (t->waits > 0) {
-+      turnstile = std::move(tc->free.front());
-+      tc->free.pop();
++    if (!m_turnstile->free.empty()) {
++      t_turnstile = std::move(m_turnstile->free.front());
++      m_turnstile->free.pop();
 +    } else {
-+      turnstile.reset(t);
-+      t = ready.get();
++      t_turnstile.reset(m_turnstile);
++      m_turnstile = ready.get();
 +    }
 +  }
 +}
@@ -111,22 +105,22 @@ index 5f9e009..fbcf4ce 100644
 + * then it will wake its up.
 + */
 +void Mutex::unlock() {
-+  auto tc = tc_lookup(this);
++  auto m = m_lookup(this);
 +
-+  std::lock_guard<std::mutex> lk(tc->cv_m);
++  std::lock_guard<std::mutex> lk(*m);
 +
-+  if (t == ready.get()) {
-+    t = nullptr;
-+  } else if (t != nullptr) {
-+    t->release = true;
-+    t->cv.notify_one();
++  if (m_turnstile == ready.get()) {
++    m_turnstile = nullptr;
++  } else if (m_turnstile != nullptr) {
++    m_turnstile->release = true;
++    m_turnstile->cv.notify_one();
 +  }
 +}
 diff --git a/src/turnstile.h b/src/turnstile.h
-index 9ab68e2..379686c 100644
+index 9ab68e2..13dbcf5 100644
 --- a/src/turnstile.h
 +++ b/src/turnstile.h
-@@ -1,15 +1,33 @@
+@@ -1,15 +1,31 @@
  #ifndef SRC_TURNSTILE_H_
  #define SRC_TURNSTILE_H_
  
@@ -142,15 +136,13 @@ index 9ab68e2..379686c 100644
 +
 +struct Turnstile {
 +  std::condition_variable cv;
-+  bool release;
-+  uint32_t waits;
-+
-+  Turnstile() : release(false), waits(0) {}
++  bool release = false;
++  std::queue<std::unique_ptr<Turnstile>> free;
 +};
  
  class Mutex {
 + private:
-+  Turnstile* t;
++  Turnstile* m_turnstile;
 +
   public:
    Mutex();
