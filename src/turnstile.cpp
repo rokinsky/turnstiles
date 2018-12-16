@@ -16,13 +16,6 @@ inline static std::uintptr_t m_hash(Mutex *m) {
 inline static std::mutex *m_lookup(Mutex *m) { return &M[m_hash(m)]; }
 
 /*
- * For each thread
- * a turnstile is allocated one time
- * and attached to them.
- */
-thread_local std::unique_ptr<Turnstile> t_turnstile;
-
-/*
  * When a lock references here,
  * it means that the lock is ready to block threads,
  * but hasn't turnstile yet.
@@ -63,11 +56,7 @@ void Mutex::lock() {
     m_turnstile = ready.get();
   } else {
     if (m_turnstile == ready.get()) {
-      if (t_turnstile) {
-        m_turnstile = t_turnstile.release();
-      } else {
         m_turnstile = new Turnstile;
-      }
     }
 
     m_turnstile->waits++;
@@ -78,7 +67,7 @@ void Mutex::lock() {
     m_turnstile->waits--;
 
     if (m_turnstile->waits == 0) {
-      t_turnstile.reset(m_turnstile);
+      delete m_turnstile;
       m_turnstile = ready.get();
     }
   }
