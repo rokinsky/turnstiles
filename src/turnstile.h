@@ -12,15 +12,13 @@
 
 struct Turnstile {
   std::condition_variable cv;
-  bool release;
+  bool release = false;
   std::queue<std::unique_ptr<Turnstile>> free;
-
-  Turnstile() : release(false) {}
 };
 
 class Mutex {
  private:
-  Turnstile* t;
+  Turnstile* m_turnstile;
 
  public:
   Mutex();

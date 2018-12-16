@@ -1,43 +1,45 @@
 #include "turnstile.h"
 
-const uint32_t TC_TABLESIZE = 256;
-const uint32_t TC_MASK = TC_TABLESIZE - 1;
+/*
+ * Global protection for Mutexes.
+ * Try to distribute Mutexes evenly among std::mutex
+ */
+const uint32_t M_TABLESIZE = 1024;
+const uint32_t M_MASK = M_TABLESIZE - 1;
 
-/* The first thread allocates global synchronized structure. */
-std::once_flag init;
-std::vector<std::mutex> turnstile_m;
+std::array<std::mutex, M_TABLESIZE> M;
 
-/* For each thread a turnstile is allocated one time and attached to them. */
+inline static std::uintptr_t m_hash(Mutex *m) {
+  return reinterpret_cast<std::uintptr_t>(m) & M_MASK;
+}
+
+inline static std::mutex *m_lookup(Mutex *m) { return &M[m_hash(m)]; }
+
+/*
+ * For each thread
+ * a turnstile is allocated one time
+ * and attached to them.
+ */
+thread_local std::unique_ptr<Turnstile> t_turnstile;
 thread_local std::once_flag init_t;
-thread_local std::unique_ptr<Turnstile> turnstile;
 
 /*
  * When a lock references here,
  * it means that the lock is ready to block threads,
  * but hasn't turnstile yet.
+ * The first thread global there will allocate it.
  */
 std::unique_ptr<Turnstile> ready;
+std::once_flag init;
 
 inline void initialization() {
   std::call_once(init_t, []() {
-    turnstile.reset(new Turnstile);
-    std::call_once(init, []() {
-      turnstile_m = std::vector<std::mutex>(TC_TABLESIZE);
-      ready.reset(new Turnstile);
-    });
+    t_turnstile.reset(new Turnstile);
+    std::call_once(init, []() { ready.reset(new Turnstile); });
   });
 }
 
-inline std::uintptr_t tc_hash(Mutex *m) {
-  return reinterpret_cast<std::uintptr_t>(m) & TC_MASK;
-}
-
-inline std::mutex *tc_lookup(Mutex *m) {
-  initialization();
-  return &turnstile_m[tc_hash(m)];
-}
-
-Mutex::Mutex() : t(nullptr) {}
+Mutex::Mutex() : m_turnstile(nullptr) {}
 
 /*
  * If a thread is the first there,
@@ -47,7 +49,7 @@ Mutex::Mutex() : t(nullptr) {}
  * If it is the first thread to block,
  * then it lends its turnstile to Mutex.
  * Else if Mutex already has a turnstile,
- * then it gives its turnstile to free list.
+ * then it gives its turnstile to blocked turnstile's free list.
  * A thread goes to sleep...
  *
  * When a thread is woken up...
@@ -59,28 +61,30 @@ Mutex::Mutex() : t(nullptr) {}
  * A thread goes to the critical section...
  */
 void Mutex::lock() {
-  auto tc = tc_lookup(this);
+  initialization();
 
-  std::unique_lock<std::mutex> lk(*tc);
+  auto m = m_lookup(this);
 
-  if (t == nullptr) {
-    t = ready.get();
+  std::unique_lock<std::mutex> lk(*m);
+
+  if (m_turnstile == nullptr) {
+    m_turnstile = ready.get();
   } else {
-    if (t == ready.get()) {
-      t = turnstile.release();
+    if (m_turnstile == ready.get()) {
+      m_turnstile = t_turnstile.release();
     } else {
-      t->free.push(std::move(turnstile));
+      m_turnstile->free.push(std::move(t_turnstile));
     }
 
-    t->cv.wait(lk, [&]() { return t->release; });
-    t->release = false;
+    m_turnstile->cv.wait(lk, [&]() { return m_turnstile->release; });
+    m_turnstile->release = false;
 
-    if (!t->free.empty()) {
-      turnstile = std::move(t->free.front());
-      t->free.pop();
+    if (!m_turnstile->free.empty()) {
+      t_turnstile = std::move(m_turnstile->free.front());
+      m_turnstile->free.pop();
     } else {
-      turnstile.reset(t);
-      t = ready.get();
+      t_turnstile.reset(m_turnstile);
+      m_turnstile = ready.get();
     }
   }
 }
@@ -93,14 +97,14 @@ void Mutex::lock() {
  * then it will wake its up.
  */
 void Mutex::unlock() {
-  auto tc = tc_lookup(this);
+  auto m = m_lookup(this);
 
-  std::lock_guard<std::mutex> lk(*tc);
+  std::lock_guard<std::mutex> lk(*m);
 
-  if (t == ready.get()) {
-    t = nullptr;
-  } else if (t != nullptr) {
-    t->release = true;
-    t->cv.notify_one();
+  if (m_turnstile == ready.get()) {
+    m_turnstile = nullptr;
+  } else if (m_turnstile != nullptr) {
+    m_turnstile->release = true;
+    m_turnstile->cv.notify_one();
   }
 }
