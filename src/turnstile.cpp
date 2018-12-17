@@ -6,7 +6,7 @@
  * but hasn't turnstile yet.
  * The first thread global there will allocate it.
  */
-std::unique_ptr<Turnstile> ready;
+std::unique_ptr<Turnstile> ready_turnstile;
 std::once_flag init;
 
 Mutex::Mutex() : m_turnstile(nullptr) {}
@@ -16,6 +16,14 @@ bool Mutex::CAS(void* expected, void* desired) {
   auto dsr = static_cast<Turnstile*>(desired);
   return m_turnstile.compare_exchange_strong(exp, dsr,
                                              std::memory_order_acquire);
+}
+
+Turnstile* Mutex::turnstile() {
+  return m_turnstile.load();
+}
+
+bool Mutex::has_waits() {
+  return turnstile()->waits > 0;
 }
 
 bool Turnstile::CAS(bool expected, bool desired) {
@@ -43,20 +51,19 @@ bool Turnstile::CAS(bool expected, bool desired) {
  * A thread goes to the critical section...
  */
 void Mutex::lock() {
-  std::call_once(init, []() { ready.reset(new Turnstile); });
+  std::call_once(init, []() { ready_turnstile.reset(new Turnstile); });
 
-  if (!CAS(nullptr, ready.get())) {
-    m_turnstile.load()->waits++;
-    CAS(ready.get(), new Turnstile); /* mem leak 100% */
+  if (!CAS(nullptr, ready_turnstile.get())) {
+    CAS(ready_turnstile.get(), new Turnstile); /* mem leak 100%, but don't care */
+    turnstile()->waits++;
 
-    std::unique_lock<std::mutex> lk(m_turnstile.load()->cv_m);
-    m_turnstile.load()->cv.wait(
-        lk, [&]() { return m_turnstile.load()->CAS(true, false); });
-    m_turnstile.load()->waits--;
+    std::unique_lock<std::mutex> lk(turnstile()->cv_m);
+    turnstile()->cv.wait(lk, [&]() { return turnstile()->CAS(true, false); });
+    turnstile()->waits--;
 
-    if (m_turnstile.load()->waits == 0) {
+    if (!has_waits()) { /* here problems */
       Turnstile* tmp = m_turnstile;
-      m_turnstile.store(ready.get(), std::memory_order_release);
+      m_turnstile.store(ready_turnstile.get(), std::memory_order_release);
       lk.unlock();
       delete tmp;
     }
@@ -71,9 +78,9 @@ void Mutex::lock() {
  * then it will wake its up.
  */
 void Mutex::unlock() {
-  if (!CAS(ready.get(), nullptr)) {
-    std::lock_guard<std::mutex> lk(m_turnstile.load()->cv_m);
-    m_turnstile.load()->release.store(true, std::memory_order_release);
-    m_turnstile.load()->cv.notify_one();
+  if (!CAS(ready_turnstile.get(), nullptr)) {
+    std::lock_guard<std::mutex> lk(turnstile()->cv_m);
+    turnstile()->release.store(true, std::memory_order_release);
+    turnstile()->cv.notify_one();
   }
 }

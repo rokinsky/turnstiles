@@ -22,6 +22,8 @@ class Mutex {
  private:
   std::atomic<Turnstile*> m_turnstile;
   bool CAS(void* expected, void* desired);
+  bool has_waits();
+  Turnstile* turnstile();
 
  public:
   Mutex();
