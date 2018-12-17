@@ -1,21 +1,6 @@
 #include "turnstile.h"
 
 /*
- * Global protection for Mutexes.
- * Try to distribute Mutexes evenly among std::mutex
- */
-const std::size_t M_TABLESIZE = 512;
-const std::size_t M_MASK = M_TABLESIZE - 1;
-
-std::array<std::mutex, M_TABLESIZE> M;
-
-inline static std::uintptr_t m_hash(Mutex *m) {
-  return reinterpret_cast<std::uintptr_t>(m) & M_MASK;
-}
-
-inline static std::mutex *m_lookup(Mutex *m) { return &M[m_hash(m)]; }
-
-/*
  * When a lock references here,
  * it means that the lock is ready to block threads,
  * but hasn't turnstile yet.
@@ -25,6 +10,18 @@ std::unique_ptr<Turnstile> ready;
 std::once_flag init;
 
 Mutex::Mutex() : m_turnstile(nullptr) {}
+
+bool Mutex::CAS(void* expected, void* desired) {
+  auto exp = static_cast<Turnstile*>(expected);
+  auto dsr = static_cast<Turnstile*>(desired);
+  return m_turnstile.compare_exchange_strong(exp, dsr,
+                                             std::memory_order_acquire);
+}
+
+bool Turnstile::CAS(bool expected, bool desired) {
+  return release.compare_exchange_strong(expected, desired,
+                                         std::memory_order_acquire);
+}
 
 /*
  * If a thread is the first there,
@@ -48,27 +45,20 @@ Mutex::Mutex() : m_turnstile(nullptr) {}
 void Mutex::lock() {
   std::call_once(init, []() { ready.reset(new Turnstile); });
 
-  auto m = m_lookup(this);
+  if (!CAS(nullptr, ready.get())) {
+    m_turnstile.load()->waits++;
+    CAS(ready.get(), new Turnstile); /* mem leak 100% */
 
-  std::unique_lock<std::mutex> lk(*m);
+    std::unique_lock<std::mutex> lk(m_turnstile.load()->cv_m);
+    m_turnstile.load()->cv.wait(
+        lk, [&]() { return m_turnstile.load()->CAS(true, false); });
+    m_turnstile.load()->waits--;
 
-  if (m_turnstile == nullptr) {
-    m_turnstile = ready.get();
-  } else {
-    if (m_turnstile == ready.get()) {
-        m_turnstile = new Turnstile;
-    }
-
-    m_turnstile->waits++;
-
-    m_turnstile->cv.wait(lk, [&]() { return m_turnstile->release; });
-    m_turnstile->release = false;
-
-    m_turnstile->waits--;
-
-    if (m_turnstile->waits == 0) {
-      delete m_turnstile;
-      m_turnstile = ready.get();
+    if (m_turnstile.load()->waits == 0) {
+      Turnstile* tmp = m_turnstile;
+      m_turnstile.store(ready.get(), std::memory_order_release);
+      lk.unlock();
+      delete tmp;
     }
   }
 }
@@ -81,14 +71,9 @@ void Mutex::lock() {
  * then it will wake its up.
  */
 void Mutex::unlock() {
-  auto m = m_lookup(this);
-
-  std::lock_guard<std::mutex> lk(*m);
-
-  if (m_turnstile == ready.get()) {
-    m_turnstile = nullptr;
-  } else if (m_turnstile != nullptr) {
-    m_turnstile->release = true;
-    m_turnstile->cv.notify_one();
+  if (!CAS(ready.get(), nullptr)) {
+    std::lock_guard<std::mutex> lk(m_turnstile.load()->cv_m);
+    m_turnstile.load()->release.store(true, std::memory_order_release);
+    m_turnstile.load()->cv.notify_one();
   }
 }

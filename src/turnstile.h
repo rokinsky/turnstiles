@@ -12,13 +12,16 @@
 
 struct Turnstile {
   std::condition_variable cv;
-  bool release = false;
-  uint32_t waits = 0;
+  std::atomic<bool> release{false};
+  std::atomic<uint32_t> waits{0};
+  std::mutex cv_m;
+  bool CAS(bool expected, bool desired);
 };
 
 class Mutex {
  private:
-  Turnstile* m_turnstile;
+  std::atomic<Turnstile*> m_turnstile;
+  bool CAS(void* expected, void* desired);
 
  public:
   Mutex();
